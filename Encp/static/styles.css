@@ -1,0 +1,78 @@
+body {
+    margin: 0;
+    padding: 0;
+    font-family: 'Outfit', sans-serif;
+    background: linear-gradient(to bottom right, #ffe5ec, #f2f2f2);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+  }
+  
+  .container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    width: 100%;
+  }
+  
+  .card {
+    background-color: #fff;
+    padding: 2rem;
+    border-radius: 20px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+    width: 100%;
+    max-width: 420px;
+    text-align: center;
+  }
+  
+  .card h1 {
+    color: #6a0dad; /* Royal purple */
+    font-size: 1.8rem;
+    margin-bottom: 1.5rem;
+  }
+  
+  input[type="file"],
+  input[type="password"] {
+    display: block;
+    width: 100%;
+    padding: 0.8rem;
+    margin-bottom: 1rem;
+    border-radius: 10px;
+    border: 1px solid #ffc0cb; /* Baby pink */
+    font-size: 1rem;
+    box-sizing: border-box;
+  }
+  
+  .button-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+  }
+  
+  button {
+    padding: 0.75rem;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #fff;
+    background: linear-gradient(to right, #d16ba5, #86a8e7, #5ffbf1);
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+  }
+  
+  button:hover {
+    transform: scale(1.03);
+  }
+  
+  pre#output {
+    margin-top: 1rem;
+    font-size: 0.85rem;
+    background: #f7f7f7;
+    padding: 1rem;
+    border-radius: 8px;
+    color: #333;
+    word-break: break-word;
+  }
+  

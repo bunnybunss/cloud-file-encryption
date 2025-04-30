@@ -1,0 +1,32 @@
+<!-- Basic Navigation UI (HTML with placeholders) -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Secure File Vault</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header>
+    <h1>🔐 Secure File Vault</h1>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/login">Login</a>
+      <a href="/signup">Sign Up</a>
+      <a href="/dashboard">Dashboard</a>
+      <a href="/encrypt">Encrypt</a>
+      <a href="/decrypt">Decrypt</a>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Dynamic content here -->
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer>
+    <p>&copy; 2025 Secure File Vault</p>
+  </footer>
+</body>
+</html>
