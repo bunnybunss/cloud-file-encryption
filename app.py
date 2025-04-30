@@ -7,24 +7,26 @@ from pathlib import Path
 from functools import wraps
 
 from flask import (
-    Flask, g, request, jsonify, send_from_directory
+    Flask, render_template, g, request, jsonify, send_from_directory
 )
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 from secure_crypto.secure_crypto import encrypt_file, decrypt_file
 import jwt
+from cryptography.exceptions import InvalidTag
 
 # ─── Load .env ────────────────────────────────────────────────────────────────
 load_dotenv()  # Populates os.environ from .env
 
 # ─── App Configuration ────────────────────────────────────────────────────────
 app = Flask(__name__, instance_relative_config=True)
-app.config['SECRET_KEY']        = os.getenv('SECRET_KEY')
-print("🔑 SECRET_KEY is:", app.config['SECRET_KEY'])
-app.config['UPLOAD_FOLDER']     = os.getenv('UPLOAD_FOLDER', 'uploads')
+app.config['SECRET_KEY']         = os.getenv('SECRET_KEY')
+app.config['UPLOAD_FOLDER']      = os.getenv('UPLOAD_FOLDER', 'uploads')
 app.config['MAX_CONTENT_LENGTH'] = int(os.getenv('MAX_CONTENT_LENGTH', 50 * 1024**2))
-ALLOWED_EXTENSIONS              = set(os.getenv('ALLOWED_EXTENSIONS', '').split(','))
+ALLOWED_EXTENSIONS               = set(os.getenv('ALLOWED_EXTENSIONS', '').split(','))
+
+print("🔑 SECRET_KEY is:", app.config['SECRET_KEY'])
 
 # Ensure upload folder exists
 Path(app.config['UPLOAD_FOLDER']).mkdir(parents=True, exist_ok=True)
@@ -70,10 +72,13 @@ def token_required(f):
         return f(*args, **kwargs)
     return decorated
 
-# ─── Routes: Signup & Login ──────────────────────────────────────────────────
+# ─── Routes ───────────────────────────────────────────────────────────────────
+@app.route("/")
+def home():
+    return render_template("index.html")
+
 @app.route('/signup', methods=['POST'])
 def signup_post():
-    # Accept form-data or JSON
     data     = request.form or request.get_json(silent=True) or {}
     email    = data.get('email')
     password = data.get('password')
@@ -94,12 +99,9 @@ def signup_post():
 @app.route('/login', methods=['POST'])
 def login():
     try:
-        # Accept JSON or form data
         data     = request.get_json(silent=True) or request.form
         email    = data.get('email')
         password = data.get('password')
-        print(f"[LOGIN] received email={email!r}, password={password!r}")
-
         if not email or not password:
             return jsonify({'success': False, 'message': 'Email and password required'}), 400
 
@@ -107,16 +109,10 @@ def login():
         c  = db.cursor()
         c.execute("SELECT password_hash FROM users WHERE email = ?", (email,))
         row = c.fetchone()
-        print("[LOGIN] db row:", row)
-
         if not row or not check_password_hash(row['password_hash'], password):
             return jsonify({'success': False, 'message': 'Invalid credentials'}), 401
 
         sk = app.config.get('SECRET_KEY')
-        print("[LOGIN] SECRET_KEY is:", sk)
-        if not sk:
-            return jsonify({'success': False, 'message': 'Server misconfigured'}), 500
-
         token = jwt.encode({
             'user': email,
             'exp':  datetime.datetime.utcnow() + datetime.timedelta(minutes=30)
@@ -128,7 +124,6 @@ def login():
         traceback.print_exc()
         return jsonify({'success': False, 'message': str(e)}), 500
 
-# ─── Routes: File Encryption ──────────────────────────────────────────────────
 @app.route('/encrypt', methods=['POST'])
 @token_required
 def encrypt_file_route():
@@ -146,8 +141,6 @@ def encrypt_file_route():
     encrypted_path = encrypt_file(str(filepath), request.form['password'])
     return jsonify({'success': True, 'encrypted': Path(encrypted_path).name}), 200
 
-from cryptography.exceptions import InvalidTag
-
 @app.route('/decrypt', methods=['POST'])
 @token_required
 def decrypt_file_route():
@@ -158,12 +151,10 @@ def decrypt_file_route():
     if file.filename == '' or not allowed_file(file.filename):
         return jsonify({'success': False, 'message': 'Invalid file'}), 400
 
-    # Save the uploaded .enc
     filename = secure_filename(file.filename)
     filepath = Path(app.config['UPLOAD_FOLDER']) / filename
     file.save(filepath)
 
-    # Attempt decryption
     try:
         decrypted_path = decrypt_file(str(filepath), request.form['password'])
     except InvalidTag:
@@ -172,10 +163,7 @@ def decrypt_file_route():
             'message': 'Decryption failed: wrong password or corrupted file'
         }), 400
 
-    return jsonify({
-        'success': True,
-        'decrypted': Path(decrypted_path).name
-    }), 200
+    return jsonify({'success': True, 'decrypted': Path(decrypted_path).name}), 200
 
 # ─── Error Handlers ──────────────────────────────────────────────────────────
 @app.errorhandler(413)
