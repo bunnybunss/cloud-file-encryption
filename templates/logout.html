@@ -1,12 +1,15 @@
 {% extends 'layout.html' %}
-{% block title %}Goodbye{% endblock %}
+{% block title %}Logged Out{% endblock %}
 
 {% block content %}
-  <div class="card">
-    <h1>Thank You!</h1>
-    <p>Thank you for trusting Secure Vault with your files.</p>
-    <a href="{{ url_for('login') }}">
-      <button type="button">Log In Again</button>
-    </a>
-  </div>
+<div class="card">
+  <h1>You've been logged out</h1>
+  <p>Redirecting you to the <a href="/login">login page</a>...</p>
+</div>
+
+<script>
+  setTimeout(() => {
+    window.location.href = '/login';
+  }, 2000);
+</script>
 {% endblock %}

@@ -122,6 +122,11 @@ def decrypt_page():
 def share_page():
     return render_template("share.html")
 
+# ✅ Add your logout route here
+@app.route("/logout")
+def logout():
+    return render_template("logout.html")
+
 
 # ─── Protected API Endpoints ────────────────────────────────────────────────
 
