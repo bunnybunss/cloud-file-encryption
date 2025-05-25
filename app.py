@@ -4,10 +4,12 @@ import uuid
 import datetime
 import hashlib
 
+
 from flask import (
     Flask, render_template, request, jsonify,
     redirect, url_for, send_from_directory
 )
+from flask_cors import CORS
 from flask_jwt_extended import (
     JWTManager, create_access_token,
     jwt_required, get_jwt_identity
@@ -22,6 +24,8 @@ from dotenv import load_dotenv
 load_dotenv()  # Load SECRET_KEY & JWT_SECRET_KEY from .env
 
 app = Flask(__name__)
+CORS(app)
+
 app.config.update({
     "SECRET_KEY":         os.getenv("SECRET_KEY", "your-secret-key"),
     "JWT_SECRET_KEY":     os.getenv("JWT_SECRET_KEY", "super-secret-key"),

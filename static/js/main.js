@@ -75,9 +75,8 @@ document.addEventListener('DOMContentLoaded', () => {
         };
       }
 
-      // ✅ FIX: use absolute URL for cross-origin requests
-      const fullUrl = `${backendUrl}${url}`;
-      const res = await fetch(fullUrl, opts);
+      // ✅ FIXED: use full backend URL to avoid relative fetch error
+      const res = await fetch(`${backendUrl}${url}`, opts);
       const data = await res.json();
 
       switch (url) {
