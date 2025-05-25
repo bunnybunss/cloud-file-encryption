@@ -1,0 +1,12 @@
+{% extends 'layout.html' %}
+{% block title %}Goodbye{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <h1>Thank You!</h1>
+    <p>Thank you for trusting Secure Vault with your files.</p>
+    <a href="{{ url_for('login') }}">
+      <button type="button">Log In Again</button>
+    </a>
+  </div>
+{% endblock %}

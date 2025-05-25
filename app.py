@@ -1,181 +1,258 @@
-#!/usr/bin/env python3
-# ──────────────────────────────────────────────────────────────────────────────
-#  Secure-Cloud-App · Flask backend
-#  – Signup / Login (JWT) · AES file-encryption endpoints
-#  – GET views for login & signup pages so links work in browser
-# ──────────────────────────────────────────────────────────────────────────────
-import os, sqlite3, logging, datetime, traceback, jwt
-from functools import wraps
-from pathlib import Path
+import os
+import sqlite3
+import uuid
+import datetime
+import hashlib
 
 from flask import (
-    Flask, g, request, jsonify, render_template, send_from_directory
+    Flask, render_template, request, jsonify,
+    redirect, url_for, send_from_directory
 )
-from werkzeug.utils      import secure_filename
-from werkzeug.security   import generate_password_hash, check_password_hash
-from dotenv              import load_dotenv
-from cryptography.exceptions import InvalidTag
-
-from secure_crypto.secure_crypto import encrypt_file, decrypt_file
-
-# ─── Load .env ────────────────────────────────────────────────────────────────
-load_dotenv()                                              # fills os.environ
-
-# ─── App object & config ─────────────────────────────────────────────────────
-app = Flask(__name__, instance_relative_config=True)
-
-app.config.update(
-    SECRET_KEY          = os.getenv('SECRET_KEY',   'dev-secret'),
-    UPLOAD_FOLDER       = os.getenv('UPLOAD_FOLDER', 'uploads'),
-    MAX_CONTENT_LENGTH  = int(os.getenv('MAX_CONTENT_LENGTH', 50 * 1024**2)),
+from flask_jwt_extended import (
+    JWTManager, create_access_token,
+    jwt_required, get_jwt_identity
 )
-ALLOWED_EXTENSIONS = set(os.getenv('ALLOWED_EXTENSIONS', 'txt,png,jpg,pdf,enc')
-                         .split(','))
+from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from dotenv import load_dotenv
 
-Path(app.config['UPLOAD_FOLDER']).mkdir(exist_ok=True, parents=True)
+# ─── App Setup ────────────────────────────────────────────────────────────────
 
-# ─── Logging ─────────────────────────────────────────────────────────────────
-logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
-logger = logging.getLogger(__name__)
+load_dotenv()  # Load SECRET_KEY & JWT_SECRET_KEY from .env
 
-# ─── Database helpers ────────────────────────────────────────────────────────
-DATABASE = Path(__file__).with_name('users.db')
+app = Flask(__name__)
+app.config.update({
+    "SECRET_KEY":         os.getenv("SECRET_KEY", "your-secret-key"),
+    "JWT_SECRET_KEY":     os.getenv("JWT_SECRET_KEY", "super-secret-key"),
+    "JWT_TOKEN_LOCATION": ["headers"],
+    "JWT_HEADER_NAME":    "x-access-token",
+    "JWT_HEADER_TYPE":    "",
+    "UPLOAD_FOLDER":      os.path.join(os.getcwd(), "uploads")
+})
+os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+
+jwt = JWTManager(app)
+
+
+# ─── Database Helpers ────────────────────────────────────────────────────────
 
 def get_db():
-    if 'db' not in g:
-        g.db = sqlite3.connect(DATABASE, detect_types=sqlite3.PARSE_DECLTYPES)
-        g.db.row_factory = sqlite3.Row
-    return g.db
+    conn = sqlite3.connect("users.db")
+    conn.row_factory = sqlite3.Row
+    return conn
 
-@app.teardown_appcontext
-def close_db(_=None):
-    db = g.pop('db', None)
-    if db:
-        db.close()
+def get_user_by_email(email: str):
+    db = get_db()
+    row = db.execute(
+        "SELECT * FROM users WHERE email = ?",
+        (email,)
+    ).fetchone()
+    return dict(row) if row else None
 
-# ─── Utility ─────────────────────────────────────────────────────────────────
-def allowed_file(fname: str) -> bool:
-    return '.' in fname and fname.rsplit('.', 1)[-1].lower() in ALLOWED_EXTENSIONS
+def derive_key(password: str) -> bytes:
+    # Derive a 256-bit key from the password
+    salt = b"fixed-salt"
+    return hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 100000, dklen=32)
 
-# ─── JWT decorator ───────────────────────────────────────────────────────────
-def token_required(f):
-    @wraps(f)
-    def _wrap(*a, **kw):
-        token = request.headers.get('x-access-token')
-        if not token:
-            return jsonify(success=False, message='Token missing'), 401
-        try:
-            payload = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
-            g.current_user = payload['user']
-        except jwt.ExpiredSignatureError:
-            return jsonify(success=False, message='Token expired'), 403
-        except jwt.InvalidTokenError:
-            return jsonify(success=False, message='Invalid token'), 403
-        return f(*a, **kw)
-    return _wrap
 
-# ╭───────────────────────────  PUBLIC PAGES  ───────────────────────────────╮
-@app.route('/')
-def home():                       return render_template('index.html')
+# ─── Public Page Routes (no JWT required) ──────────────────────────────────
 
-@app.route('/login',  methods=['GET'])
-def login_page():                 return render_template('login.html')
+@app.route("/")
+def home():
+    return redirect(url_for("login"))
 
-@app.route('/signup', methods=['GET'])
-def signup_page():                return render_template('signup.html')
-# ╰───────────────────────────────────────────────────────────────────────────╯
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "GET":
+        return render_template("login.html")
 
-# ─── Auth API (POST) ─────────────────────────────────────────────────────────
-@app.route('/signup', methods=['POST'])
-def signup_post():
-    data = request.form or request.get_json(silent=True) or {}
-    email, password = data.get('email'), data.get('password')
-    if not (email and password):
-        return jsonify(success=False, message='Email and password required'), 400
+    data = request.get_json()
+    email = data.get("email", "").strip().lower()
+    pw    = data.get("password", "")
+
+    user = get_user_by_email(email)
+    if not user or not check_password_hash(user["password_hash"], pw):
+        return jsonify(success=False, message="Invalid credentials"), 401
+
+    token = create_access_token(identity=email)
+    return jsonify(success=True, token=token)
+
+@app.route("/signup", methods=["GET", "POST"])
+def signup():
+    if request.method == "GET":
+        return render_template("signup.html")
+
+    data     = request.get_json()
+    email    = data.get("email", "").strip().lower()   # Fixed .strip()
+    password = data.get("password", "")
+
+    if not email or not password:
+        return jsonify(success=False, message="Email and password required"), 400
 
     db = get_db()
-    if db.execute('SELECT 1 FROM users WHERE email=?', (email,)).fetchone():
-        return jsonify(success=False, message='User exists'), 409
+    try:
+        db.execute(
+            "INSERT INTO users (email, password_hash) VALUES (?, ?)",
+            (email, generate_password_hash(password))
+        )
+        db.commit()
+    except sqlite3.IntegrityError:
+        return jsonify(success=False, message="Email already registered"), 400
 
-    db.execute('INSERT INTO users (email, password_hash) VALUES (?, ?)',
-               (email, generate_password_hash(password)))
+    return jsonify(success=True)
+
+@app.route("/dashboard")
+def dashboard():
+    return render_template("dashboard.html")
+
+@app.route("/encrypt", methods=["GET"])
+def encrypt_page():
+    return render_template("encrypt.html")
+
+@app.route("/decrypt", methods=["GET"])
+def decrypt_page():
+    return render_template("decrypt.html")
+
+@app.route("/share", methods=["GET"])
+def share_page():
+    return render_template("share.html")
+
+
+# ─── Protected API Endpoints ────────────────────────────────────────────────
+
+@app.route("/encrypt", methods=["POST"])
+@jwt_required()
+def encrypt_file():
+    f  = request.files.get("file")
+    pw = request.form.get("password", "")
+    if not f or not pw:
+        return jsonify(success=False, message="File + password required"), 400
+
+    # Save incoming file
+    orig_name = f.filename
+    safe_name = uuid.uuid4().hex + "__" + secure_filename(orig_name)
+    path_orig = os.path.join(app.config["UPLOAD_FOLDER"], safe_name)
+    f.save(path_orig)
+
+    # Read & encrypt
+    plaintext = open(path_orig, "rb").read()
+    key       = derive_key(pw)
+    aesgcm    = AESGCM(key)
+    nonce     = os.urandom(12)
+    ciphertext = aesgcm.encrypt(nonce, plaintext, None)
+
+    enc_name = safe_name + ".enc"
+    with open(os.path.join(app.config["UPLOAD_FOLDER"], enc_name), "wb") as out:
+        out.write(nonce + ciphertext)
+
+    return jsonify(success=True, encrypted=enc_name)
+
+@app.route("/decrypt", methods=["POST"])
+@jwt_required()
+def decrypt_file():
+    f  = request.files.get("file")
+    pw = request.form.get("password", "")
+    if not f or not pw:
+        return jsonify(success=False, message="File + password required"), 400
+
+    filename = secure_filename(f.filename)
+    path_enc  = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    f.save(path_enc)
+
+    data      = open(path_enc, "rb").read()
+    nonce, ct = data[:12], data[12:]
+
+    key    = derive_key(pw)
+    aesgcm = AESGCM(key)
+    try:
+        pt = aesgcm.decrypt(nonce, ct, None)
+    except Exception:
+        return jsonify(success=False, message="Decryption failed"), 400
+
+    dec_name = filename.replace(".enc", "")
+    with open(os.path.join(app.config["UPLOAD_FOLDER"], dec_name), "wb") as out:
+        out.write(pt)
+
+    return jsonify(success=True, decrypted=dec_name)
+
+@app.route("/share", methods=["POST"])
+@jwt_required()
+def create_share():
+    f      = request.files.get("file")
+    pw     = request.form.get("password", "")
+    expiry = request.form.get("expiry", type=int)
+
+    if not f or not pw or not expiry:
+        return jsonify(success=False, message="File, password & expiry required"), 400
+
+    # Save the file
+    filename  = secure_filename(f.filename)
+    save_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    f.save(save_path)
+
+    # Hash password and set expiry
+    pwd_hash   = hashlib.sha256(pw.encode()).hexdigest()
+    expires_at = (datetime.datetime.utcnow()
+                  + datetime.timedelta(minutes=expiry)
+                 ).isoformat()
+
+    # Insert share record
+    token = uuid.uuid4().hex
+    db = get_db()
+    db.execute(
+        "INSERT INTO shares (token, filename, pwd_hash, expires_at) VALUES (?,?,?,?)",
+        (token, filename, pwd_hash, expires_at)
+    )
     db.commit()
-    return jsonify(success=True, message='Account created'), 201
 
-@app.route('/login', methods=['POST'])
-def login_post():
-    try:
-        data = request.get_json(silent=True) or request.form
-        email, password = data.get('email'), data.get('password')
-        if not (email and password):
-            return jsonify(success=False, message='Email and password required'), 400
+    link = url_for("access_share", token=token, _external=True)
+    return jsonify(success=True, link=link)
 
-        row = get_db().execute('SELECT password_hash FROM users WHERE email=?',
-                               (email,)).fetchone()
-        if not row or not check_password_hash(row['password_hash'], password):
-            return jsonify(success=False, message='Invalid credentials'), 401
+@app.route("/share/<token>", methods=["GET", "POST"])
+def access_share(token):
+    row = get_db().execute(
+        "SELECT filename, pwd_hash, expires_at FROM shares WHERE token = ?",
+        (token,)
+    ).fetchone()
+    if not row:
+        return render_template("access_share.html", error="Invalid link")
 
-        token = jwt.encode({
-            'user': email,
-            'exp' : datetime.datetime.utcnow() + datetime.timedelta(minutes=30)
-        }, app.config['SECRET_KEY'], algorithm='HS256')
+    if request.method == "POST":
+        pw = request.form.get("password", "")
+        if not pw:
+            return render_template("access_share.html", error="Password required")
 
-        return jsonify(success=True, token=token), 200
+        now_iso = datetime.datetime.utcnow().isoformat()
+        if now_iso > row["expires_at"]:
+            return render_template("access_share.html", error="Link expired")
 
-    except Exception as e:
-        logger.exception(e)
-        return jsonify(success=False, message=str(e)), 500
+        if hashlib.sha256(pw.encode()).hexdigest() != row["pwd_hash"]:
+            return render_template("access_share.html", error="Incorrect password")
 
-# ─── Encryption API ─────────────────────────────────────────────────────────
-@app.route('/encrypt', methods=['POST'])
-@token_required
-def encrypt_route():
-    if 'file' not in request.files or 'password' not in request.form:
-        return jsonify(success=False, message='Missing file or password'), 400
+        # All good—send the file
+        return send_from_directory(
+            app.config["UPLOAD_FOLDER"],
+            row["filename"],
+            as_attachment=True
+        )
 
-    file = request.files['file']
-    if not file.filename or not allowed_file(file.filename):
-        return jsonify(success=False, message='Invalid file'), 400
+    # GET: show password form
+    return render_template("access_share.html", filename=row["filename"])
 
-    fp = Path(app.config['UPLOAD_FOLDER']) / secure_filename(file.filename)
-    file.save(fp)
-    enc_path = encrypt_file(str(fp), request.form['password'])
-    return jsonify(success=True, encrypted=Path(enc_path).name), 200
 
-@app.route('/decrypt', methods=['POST'])
-@token_required
-def decrypt_route():
-    if 'file' not in request.files or 'password' not in request.form:
-        return jsonify(success=False, message='Missing file or password'), 400
+# ─── Static File Serving ────────────────────────────────────────────────────
 
-    file = request.files['file']
-    if not file.filename or not allowed_file(file.filename):
-        return jsonify(success=False, message='Invalid file'), 400
+@app.route("/uploads/<path:filename>")
+def uploads(filename):
+    return send_from_directory(
+        app.config["UPLOAD_FOLDER"],
+        filename,
+        as_attachment=True
+    )
 
-    fp = Path(app.config['UPLOAD_FOLDER']) / secure_filename(file.filename)
-    file.save(fp)
-    try:
-        dec_path = decrypt_file(str(fp), request.form['password'])
-    except InvalidTag:
-        return jsonify(success=False,
-                       message='Wrong password or corrupted file'), 400
-    return jsonify(success=True, decrypted=Path(dec_path).name), 200
 
-# ─── Tiny helpers ────────────────────────────────────────────────────────────
-@app.route('/favicon.ico')                # stop 404 spam in logs
-def favicon(): return send_from_directory('static', 'favicon.ico')
+# ─── Run Server ─────────────────────────────────────────────────────────────
 
-@app.errorhandler(413)  # file too large
-def too_large(_):       return jsonify(success=False, message='File too large'), 413
-
-@app.errorhandler(404)
-def not_found(_):       return jsonify(success=False, message='Not found'), 404
-
-@app.errorhandler(500)
-def server_err(e):
-    logger.exception(e)
-    return jsonify(success=False, message='Internal error'), 500
-
-# ─── Run local dev server ────────────────────────────────────────────────────
-if __name__ == '__main__':
-    app.run(port=5001, debug=True)
+if __name__ == "__main__":
+    app.run(debug=True)

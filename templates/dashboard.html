@@ -1,98 +1,14 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Dashboard - Secure Cloud</title>
-  <script>
-    // Ensure user is logged in
-    const token = localStorage.getItem('token');
-    if (!token) {
-      window.location.href = '/login';
-    }
+{% extends 'layout.html' %}
+{% block title %}Dashboard{% endblock %}
 
-    async function doEncrypt(event) {
-      event.preventDefault();
-      const fileInput = document.getElementById('enc-file');
-      const password = document.getElementById('enc-password').value;
-      const form = new FormData();
-      form.append('file', fileInput.files[0]);
-      form.append('password', password);
-      const res = await fetch('/encrypt', {
-        method: 'POST',
-        headers: {'x-access-token': token},
-        body: form
-      });
-      const data = await res.json();
-      const out = document.getElementById('enc-result');
-      if (data.success) {
-        const link = document.createElement('a');
-        link.href = `/uploads/${data.encrypted}`;
-        link.innerText = data.encrypted;
-        out.innerHTML = 'Encrypted file: ';
-        out.appendChild(link);
-      } else {
-        out.innerText = data.message;
-      }
-    }
-
-    async function doDecrypt(event) {
-      event.preventDefault();
-      const fileInput = document.getElementById('dec-file');
-      const password = document.getElementById('dec-password').value;
-      const form = new FormData();
-      form.append('file', fileInput.files[0]);
-      form.append('password', password);
-      const res = await fetch('/decrypt', {
-        method: 'POST',
-        headers: {'x-access-token': token},
-        body: form
-      });
-      const data = await res.json();
-      const out = document.getElementById('dec-result');
-      if (data.success) {
-        const link = document.createElement('a');
-        link.href = `/uploads/${data.decrypted}`;
-        link.innerText = data.decrypted;
-        out.innerHTML = 'Decrypted file: ';
-        out.appendChild(link);
-      } else {
-        out.innerText = data.message;
-      }
-    }
-
-    function logout() {
-      localStorage.removeItem('token');
-      window.location.href = '/login';
-    }
-  </script>
-</head>
-<body class="p-4">
-  <h1>Dashboard</h1>
-  <button onclick="logout()">Log Out</button>
-  <hr>
-
-  <section>
-    <h2>Encrypt File</h2>
-    <form onsubmit="doEncrypt(event)">
-      <input type="file" id="enc-file" accept="*/*" required><br><br>
-      <input type="password" id="enc-password" placeholder="Encryption Password" required><br><br>
-      <button type="submit">Encrypt</button>
-    </form>
-    <p id="enc-result"></p>
-  </section>
-
-  <hr>
-
-  <section>
-    <h2>Decrypt File</h2>
-    <form onsubmit="doDecrypt(event)">
-      <input type="file" id="dec-file" accept=".enc" required><br><br>
-      <input type="password" id="dec-password" placeholder="Decryption Password" required><br><br>
-      <button type="submit">Decrypt</button>
-    </form>
-    <p id="dec-result"></p>
-  </section>
-</body>
-</html>
+{% block content %}
+  <div class="card">
+    <h1>Dashboard</h1>
+    <div class="dashboard-actions">
+      <a href="{{ url_for('encrypt_page') }}">🔒 Encrypt a File</a>
+      <a href="{{ url_for('decrypt_page') }}">🔓 Decrypt a File</a>
+      <a href="{{ url_for('share_page') }}">✉️ Share a File</a>
+    </div>
+    <button id="logout-btn">🚪 Log Out</button>
+  </div>
+{% endblock %}
