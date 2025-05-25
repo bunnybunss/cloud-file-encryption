@@ -1,5 +1,7 @@
 // static/js/main.js
 
+const backendUrl = "https://cloud-file-encryption1.onrender.com";
+
 document.addEventListener('DOMContentLoaded', () => {
   // 1) Redirect to /login if hitting a protected page without a token
   const token = localStorage.getItem('token');
@@ -73,7 +75,9 @@ document.addEventListener('DOMContentLoaded', () => {
         };
       }
 
-      const res = await fetch(url, opts);
+      // ✅ FIX: use absolute URL for cross-origin requests
+      const fullUrl = `${backendUrl}${url}`;
+      const res = await fetch(fullUrl, opts);
       const data = await res.json();
 
       switch (url) {
@@ -95,7 +99,7 @@ document.addEventListener('DOMContentLoaded', () => {
         case '/encrypt':
           if (data.success) {
             out.innerHTML = `Encrypted: 
-              <a href="/uploads/${data.encrypted}" download>${data.encrypted}</a>`;
+              <a href="${backendUrl}/uploads/${data.encrypted}" download>${data.encrypted}</a>`;
           } else {
             out.innerText = data.message || 'Encryption failed';
           }
@@ -104,7 +108,7 @@ document.addEventListener('DOMContentLoaded', () => {
         case '/decrypt':
           if (data.success) {
             out.innerHTML = `Decrypted: 
-              <a href="/uploads/${data.decrypted}" download>${data.decrypted}</a>`;
+              <a href="${backendUrl}/uploads/${data.decrypted}" download>${data.decrypted}</a>`;
           } else {
             out.innerText = data.message || 'Decryption failed';
           }
