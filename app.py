@@ -255,6 +255,12 @@ def uploads(filename):
         as_attachment=True
     )
 
+@app.errorhandler(Exception)
+def handle_exception(e):
+    import traceback
+    traceback.print_exc()
+    return jsonify({"success": False, "message": str(e)}), 500
+
 
 # ─── Run Server ─────────────────────────────────────────────────────────────
 
